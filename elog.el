@@ -230,30 +230,34 @@ Returns a plist with :file, :line, and :function keys."
 
 (defun elog--format-message (logger level message)
   "Format log MESSAGE according to LOGGER's format pattern and LEVEL."
-  (let* ((format-pattern (or (plist-get logger :format) elog-default-format))
+  (let* ((case-fold-search nil)  ; Case-sensitive matching for placeholders
+         (format-pattern (or (plist-get logger :format) elog-default-format))
          (name (or (plist-get logger :name) "elog"))
          (context (elog-get-context logger))
          (context-str (elog--context-to-string context))
          (caller-info (when elog-include-caller (elog--get-caller-info)))
+         ;; Build replacement alist for single-pass replacement
+         (replacements
+          `(("%T" . ,(elog--format-time-full))
+            ("%t" . ,(elog--format-time-millis))
+            ("%l" . ,(upcase (symbol-name level)))
+            ("%n" . ,name)
+            ("%m" . ,message)
+            ("%c" . ,context-str)
+            ("%F" . ,(if caller-info
+                         (or (plist-get caller-info :function) "")
+                       ""))
+            ("%f" . ,(if caller-info
+                         (or (plist-get caller-info :file) "")
+                       ""))
+            ("%L" . ,(if (and caller-info (plist-get caller-info :line))
+                         (number-to-string (plist-get caller-info :line))
+                       ""))))
          (result format-pattern))
-    ;; Replace format placeholders
-    (setq result (replace-regexp-in-string "%t" (elog--format-time-millis) result t t))
-    (setq result (replace-regexp-in-string "%T" (elog--format-time-full) result t t))
-    (setq result (replace-regexp-in-string "%l" (upcase (symbol-name level)) result t t))
-    (setq result (replace-regexp-in-string "%n" name result t t))
-    (setq result (replace-regexp-in-string "%m" message result t t))
-    (setq result (replace-regexp-in-string "%c" context-str result t t))
-    (when caller-info
+    ;; Single-pass replacement using regexp matching all placeholders
+    (dolist (pair replacements result)
       (setq result (replace-regexp-in-string
-                    "%F" (or (plist-get caller-info :function) "") result t t))
-      (setq result (replace-regexp-in-string
-                    "%f" (or (plist-get caller-info :file) "") result t t))
-      (setq result (replace-regexp-in-string
-                    "%L" (if (plist-get caller-info :line)
-                             (number-to-string (plist-get caller-info :line))
-                           "")
-                    result t t)))
-    result))
+                    (regexp-quote (car pair)) (cdr pair) result t t)))))
 
 (defun elog--level-enabled-p (logger level)
   "Check if LEVEL is enabled for LOGGER."
@@ -365,8 +369,8 @@ HANDLERS should be a list containing any of: buffer, file, message."
   "Add a HANDLER to LOGGER's handlers list. Returns modified logger."
   (let ((handlers (plist-get logger :handlers)))
     (unless (memq handler handlers)
-      (plist-put logger :handlers (cons handler handlers))))
-  logger)
+      (plist-put logger :handlers (cons handler handlers)))
+    logger))
 
 (defun elog-set-context (logger context)
   "Set the CONTEXT for LOGGER. Returns modified logger.
@@ -547,12 +551,19 @@ The context is automatically removed after BODY completes."
 (defun elog-exception (logger error-data &optional context)
   "Log an exception/error with ERROR-DATA at ERROR level.
 ERROR-DATA should be an error object from `condition-case'.
-Optional CONTEXT provides additional information."
+Optional CONTEXT provides additional information.
+The context is only used for this log message and is not persisted."
   (let ((error-type (car error-data))
-        (error-message (error-message-string error-data)))
-    (when context
-      (elog-add-context logger 'error-context context))
-    (elog-error logger "Exception [%s]: %s" error-type error-message)))
+        (error-message (error-message-string error-data))
+        (orig-context (plist-get logger :context)))
+    (unwind-protect
+        (progn
+          (when context
+            (plist-put logger :context
+                       (cons (cons 'error-context context) orig-context)))
+          (elog-error logger "Exception [%s]: %s" error-type error-message))
+      ;; Always restore original context
+      (plist-put logger :context orig-context))))
 
 (defmacro elog-catch (logger &rest body)
   "Execute BODY and log any errors using LOGGER at ERROR level.
