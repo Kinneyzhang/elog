@@ -109,27 +109,36 @@ When exceeded, oldest lines are removed. Set to nil to disable.")
   :prefix "elog-")
 
 (defface elog-trace-face
-  '((t :foreground "gray60"))
+  '((((background dark))
+     :foreground "gray60")
+    (((background light))
+     :foreground "gray70"))
   "Face for TRACE level logs."
   :group 'elog)
 
 (defface elog-debug-face
-  '((t :foreground "cyan"))
+  '((((background dark))
+     :foreground "gray70")
+    (((background light))
+     :foreground "gray50"))
   "Face for DEBUG level logs."
   :group 'elog)
 
 (defface elog-info-face
-  '((t :foreground "green"))
+  '((((background dark))
+     :foreground "lightGreen")
+    (((background light))
+     :foreground "darkGreen"))
   "Face for INFO level logs."
   :group 'elog)
 
 (defface elog-warning-face
-  '((t :foreground "orange"))
+  '((t :inherit warning))
   "Face for WARNING level logs."
   :group 'elog)
 
 (defface elog-error-face
-  '((t :foreground "red"))
+  '((t :inherit error))
   "Face for ERROR level logs."
   :group 'elog)
 
